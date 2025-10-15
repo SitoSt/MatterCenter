@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from dotenv import load_dotenv
 from dependencies import get_controller, set_controller
+from storage.database import init_database, get_database
 
 # Cargar variables de entorno
 load_dotenv()
@@ -34,6 +35,10 @@ async def lifespan(app: FastAPI):
     # ========== INICIO ==========
     logger.info("🚀 Iniciando MatterCenter...")
     
+    db_path = os.getenv("DATABASE_PATH", "data/mattercenter.db")
+    init_database(db_path)
+    logger.success("💾 Base de datos inicializada")
+    
     # Crear e inicializar el controlador Matter
     matter_controller = MatterController()
     await matter_controller.initialize()
@@ -49,6 +54,14 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Cerrando MatterCenter...")
     if matter_controller:
         await matter_controller.shutdown()
+    
+    # Cerrar base de datos
+    try:
+        db = get_database()
+        db.close()
+    except:
+        pass
+    
     logger.success("👋 MatterCenter cerrado")
 
 
@@ -104,12 +117,21 @@ async def health():
     }
 
 
-# ========== AQUÍ IMPORTAREMOS LAS RUTAS ==========
-# Las añadiremos cuando las creemos
+## ========== IMPORTAR Y REGISTRAR RUTAS ==========
 
-# from api.routes import devices, commissioning
-# app.include_router(devices.router, prefix="/api/devices", tags=["devices"])
-# app.include_router(commissioning.router, prefix="/api/commissioning", tags=["commissioning"])
+from api.routes import devices
+
+app.include_router(
+    devices.router,
+    prefix="/api/devices",
+    tags=["devices"]
+)
+
+# app.include_router(
+#     commissioning.router,
+#     prefix="/api/commissioning",
+#     tags=["commissioning"]
+# )
 
 
 # ========== EJECUTAR ==========

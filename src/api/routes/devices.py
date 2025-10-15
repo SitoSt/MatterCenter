@@ -9,7 +9,7 @@ from typing import Optional, Dict
 from loguru import logger
 
 from matter.controller import MatterController
-from main import get_controller  # ← Importamos la función del main
+from dependencies import get_controller  # ← Importamos la función del main
 
 router = APIRouter()
 
@@ -121,6 +121,7 @@ async def send_command(
         }
         
     except ValueError as e:
+        print(e)
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error enviando comando: {e}")
@@ -149,6 +150,7 @@ async def update_device(
             device.name = name
             logger.info(f"Dispositivo {node_id} renombrado a: {name}")
         
+        controller._save_device(device)  # Guardar cambios
         return {
             "success": True,
             "device": {

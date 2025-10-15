@@ -75,6 +75,9 @@ class MatterController:
     async def shutdown(self):
         """Cerrar controlador y liberar recursos"""
         logger.info("Cerrando controlador Matter...")
+
+        for device in self.devices.values():
+            self._save_device(device)
         
         # TODO: Cerrar SDK real
         # if self.chip_controller:
