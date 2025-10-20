@@ -16,19 +16,16 @@ router = APIRouter()
 
 # ========== MODELO PYDANTIC ==========
 
+
 class CommandRequest(BaseModel):
     """Request para enviar comando a un dispositivo"""
-    command: str = Field(
-        ..., 
-        description="Comando: on, off, toggle, level"
-    )
-    params: Dict = Field(
-        default_factory=dict,
-        description="Parámetros adicionales"
-    )
+
+    command: str = Field(..., description="Comando: on, off, toggle, level")
+    params: Dict = Field(default_factory=dict, description="Parámetros adicionales")
 
 
 # ========== ENDPOINTS ==========
+
 
 @router.get("/")
 async def list_devices(controller: MatterController = Depends(get_controller)):
@@ -37,14 +34,14 @@ async def list_devices(controller: MatterController = Depends(get_controller)):
     """
     try:
         devices = controller.list_devices()
-        
+
         return [
             {
                 "node_id": device.node_id,
                 "name": device.name,
                 "type": device.device_type,
                 "online": device.is_online,
-                "endpoint": device.endpoint_id
+                "endpoint": device.endpoint_id,
             }
             for device in devices
         ]
@@ -55,8 +52,7 @@ async def list_devices(controller: MatterController = Depends(get_controller)):
 
 @router.get("/{node_id}")
 async def get_device(
-    node_id: int,
-    controller: MatterController = Depends(get_controller)
+    node_id: int, controller: MatterController = Depends(get_controller)
 ):
     """
     Obtener información completa de un dispositivo.
@@ -65,21 +61,20 @@ async def get_device(
     try:
         if node_id not in controller.devices:
             raise HTTPException(
-                status_code=404,
-                detail=f"Dispositivo {node_id} no encontrado"
+                status_code=404, detail=f"Dispositivo {node_id} no encontrado"
             )
-        
+
         device = controller.devices[node_id]
-        
+
         return {
             "node_id": device.node_id,
             "name": device.name,
             "type": device.device_type,
             "online": device.is_online,
             "endpoint": device.endpoint_id,
-            "state": device.state  # Estado completo
+            "state": device.state,  # Estado completo
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -91,35 +86,33 @@ async def get_device(
 async def send_command(
     node_id: int,
     request: CommandRequest,
-    controller: MatterController = Depends(get_controller)
+    controller: MatterController = Depends(get_controller),
 ):
     """
     Enviar comando a un dispositivo.
-    
+
     Comandos disponibles:
     - on: Encender
     - off: Apagar
     - toggle: Cambiar estado
     - level: Cambiar brillo (params: {"level": 0-100})
-    
+
     Ejemplos:
         {"command": "on"}
         {"command": "level", "params": {"level": 80}}
     """
     try:
         result = await controller.send_command(
-            node_id=node_id,
-            command=request.command,
-            **request.params
+            node_id=node_id, command=request.command, **request.params
         )
-        
+
         return {
             "success": True,
             "node_id": node_id,
             "command": request.command,
-            "result": result
+            "result": result,
         }
-        
+
     except ValueError as e:
         print(e)
         raise HTTPException(status_code=404, detail=str(e))
@@ -132,7 +125,7 @@ async def send_command(
 async def update_device(
     node_id: int,
     name: Optional[str] = None,
-    controller: MatterController = Depends(get_controller)
+    controller: MatterController = Depends(get_controller),
 ):
     """
     Actualizar nombre del dispositivo.
@@ -140,16 +133,15 @@ async def update_device(
     try:
         if node_id not in controller.devices:
             raise HTTPException(
-                status_code=404,
-                detail=f"Dispositivo {node_id} no encontrado"
+                status_code=404, detail=f"Dispositivo {node_id} no encontrado"
             )
-        
+
         device = controller.devices[node_id]
-        
+
         if name:
             device.name = name
             logger.info(f"Dispositivo {node_id} renombrado a: {name}")
-        
+
         controller._save_device(device)  # Guardar cambios
         return {
             "success": True,
@@ -157,10 +149,10 @@ async def update_device(
                 "node_id": device.node_id,
                 "name": device.name,
                 "type": device.device_type,
-                "online": device.is_online
-            }
+                "online": device.is_online,
+            },
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -170,20 +162,16 @@ async def update_device(
 
 @router.delete("/{node_id}")
 async def remove_device(
-    node_id: int,
-    controller: MatterController = Depends(get_controller)
+    node_id: int, controller: MatterController = Depends(get_controller)
 ):
     """
     Eliminar dispositivo del sistema.
     """
     try:
         await controller.remove_device(node_id)
-        
-        return {
-            "success": True,
-            "message": f"Dispositivo {node_id} eliminado"
-        }
-        
+
+        return {"success": True, "message": f"Dispositivo {node_id} eliminado"}
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

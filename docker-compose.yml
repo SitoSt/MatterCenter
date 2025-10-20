@@ -1,0 +1,47 @@
+# docker-compose.yml
+services:
+  # Servicio 1: Tu aplicación MatterCenter
+  app:
+    build: .  # Construye la imagen a partir del Dockerfile en este directorio
+    container_name: mattercenter_app
+    ports:
+      - "8000:8000"  # Mapea el puerto 8000 del contenedor a tu localhost
+    volumes:
+      - ./src:/app/src  # Sincroniza tu código para ver cambios al instante
+      - ./data:/app/data # Persiste la base de datos fuera del contenedor
+    environment:
+      - MATTER_SERVER_HOST=matter-server # Apunta a nuestro otro servicio
+      - DATABASE_PATH=/app/data/mattercenter.db
+    # 'depends_on' ahora espera a que el healthcheck del servidor pase
+    depends_on:
+      matter-server:
+        condition: service_healthy
+    network_mode: host
+
+  # Servicio 2: El python-matter-server
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable # Usa la imagen oficial y estable
+    container_name: matter_server
+    ports:
+      - "5580:5580" # Mapea el puerto del servidor Matter
+      # CAMBIO CLAVE: Dejamos el puerto de mDNS sin mapear para evitar el conflicto.
+      # - "5353:5353/udp"
+    restart: unless-stopped
+    healthcheck:
+      # CAMBIO CLAVE: Usamos un script de Python para la comprobación,
+      # ya que 'nc' (netcat) no está disponible en la imagen.
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s = socket.socket(socket.AF_INET, socket.SOCK_STREAM); s.connect(('localhost', 5580))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    network_mode: host
+
+# # CAMBIO 3: Definir explícitamente nuestra red
+# networks:
+#   matter_network:
+#     driver: bridge
