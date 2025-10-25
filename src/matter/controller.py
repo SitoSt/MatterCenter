@@ -87,6 +87,12 @@ class MatterController:
             # # de enviar cualquier comando para no perder respuestas.
             # asyncio.create_task(self._listen_for_events())
 
+            await self._send_and_wait_for_response("set_wifi_credentials",
+                **{
+                    "ssid": "NOMBRE DEL WIFI",
+                    "credentials": "CONTRASEÑA1234"
+                })
+
             # 3. Suscribirse a los eventos y ESPERAR la confirmación.
             logger.info("Subscribiendo a eventos del servidor...")
             await self._send_and_wait_for_response("start_listening")
@@ -130,7 +136,7 @@ class MatterController:
         await self.connection.send(json.dumps(payload))
 
         start_time = time.time()
-        while time.time() - start_time < 20:  # Timeout de 20 segundos
+        while time.time() - start_time < 120:  # Timeout de 120 segundos
             try:
                 raw_response = await asyncio.wait_for(
                     self.connection.recv(), timeout=1.0
@@ -159,36 +165,57 @@ class MatterController:
         )
 
     def _update_device_from_server_data(self, data: Dict):
-        node_id = data["node_id"]
+        node_id = data.get("node_id")
+        if not node_id:
+            logger.error("Error: Nodo recibido sin node_id. Saltando.")
+            return
 
-        device_type = "unknown"
-        if 257 in data["device_info"]["device_type_configs"]:
-            device_type = "light"
-        if 259 in data["device_info"]["device_type_configs"]:
-            device_type = "dimmable_light"
-
+        attributes = data.get("attributes", {})
         state = {}
-        for endpoint in data["attributes"].values():
-            if "6.1" in endpoint:
-                state["on"] = endpoint["6.1"]
-            if "8.0" in endpoint:
-                state["brightness"] = round(endpoint["8.0"] / 2.54)
+        
+        # Buscamos el estado On/Off (Cluster 6, Atributo 0)
+        on_off_state = attributes.get('1/6/0')
+        if on_off_state is not None:
+            state["on"] = on_off_state
+            
+        # Buscamos el estado de Brillo (Cluster 8, Atributo 0)
+        brightness_state = attributes.get('1/8/0')
+        if brightness_state is not None:
+            # Convertimos el valor Matter (0-254) a porcentaje (0-100)
+            state["brightness"] = round(brightness_state / 2.54)
+            
+        # (Se podrían añadir estados de color del Cluster 768 aquí)
 
+        # --- 2. Determinar el Tipo de Dispositivo ---
+        device_type = "unknown"
+        if "brightness" in state:
+            device_type = "dimmable_light"
+        elif "on" in state:
+            device_type = "light"
+        
+        # --- 3. Obtener el Nombre ---
+        # (Cluster 40, Atributo 14 = Nombre del Producto)
+        name = attributes.get('0/40/14', f"Dispositivo {node_id}")
+        
+        # --- 4. Actualizar o Crear el Dispositivo ---
         if node_id in self.devices:
             device = self.devices[node_id]
-            device.is_online = data["available"]
+            device.is_online = data.get("available", False)
             device.state = state
+            device.name = name # Actualizamos el nombre por si cambia
+            device.device_type = device_type
         else:
             device = Device(
-                node_id=node_id.to,
-                name=data["node_info"].get("name", f"Dispositivo {node_id}"),
+                node_id=node_id,
+                name=name,
                 device_type=device_type,
-                is_online=data["available"],
+                is_online=data.get("available", False),
                 state=state,
+                endpoint_id=1 # Asumimos endpoint 1
             )
             self.devices[node_id] = device
             logger.info(
-                f"✨ Dispositivo nuevo detectado: {device.name} (Node {node_id})"
+                f"✨ Dispositivo nuevo detectado y procesado: {device.name} (Node {node_id})"
             )
 
     async def _load_initial_devices(self):
@@ -206,7 +233,9 @@ class MatterController:
     async def commission_device(self, setup_code: str):
         logger.info("🔗 Solicitando comisionamiento al servidor...")
         response = await self._send_and_wait_for_response(
-            "commission_with_code", code=setup_code
+            "commission_with_code", 
+            code=setup_code,
+            use_network_manager=True  # <--- ¡AÑADE ESTA LÍNEA!
         )
         # Después de comisionar, volvemos a cargar la lista para obtener el nuevo dispositivo
         await self._load_initial_devices()
@@ -217,6 +246,10 @@ class MatterController:
         """Devuelve la lista de dispositivos desde el caché local."""
         return list(self.devices.values())
 
+
+    # TODO: Averiguar como funciona el cluster de python matter server
+    # y mapear los comandos de la API a comandos del servidor para
+    # arreglar esta funcion
     async def send_command(self, node_id: int, command: str, **params):
         """
         Envía un comando a un dispositivo, traduciéndolo al formato del servidor.
@@ -252,6 +285,7 @@ class MatterController:
         result = await self._send_and_wait_for_response(
             "device_command",
             node_id=node_id,
+            endpoint_id=device.endpoint_id,
             name=server_command,
             params=command_params,
         )
@@ -268,3 +302,20 @@ class MatterController:
         await self._send_and_wait_for_response("remove_node", node_id=node_id)
         # Refrescar la lista de dispositivos después de eliminar
         await self._load_initial_devices()
+        
+    async def save_device(self, device: Device):
+        logger.debug(f"💾 Guardando dispositivo {device.node_id} en la base de datos...")
+        try:
+            db = get_database()
+            db.save_device(
+                node_id=device.node_id,
+                name=device.name,
+                device_type=device.device_type,
+                endpoint_id=device.endpoint_id,
+                is_online=device.is_online,
+                state=device.state
+            )
+            logger.debug(f"💾 Dispositivo {device.node_id} guardado con éxito.")
+        except Exception as e:
+            # Es importante que esto no crashee la app principal
+            logger.error(f"❌ Error al guardar en la base de datos: {e}")

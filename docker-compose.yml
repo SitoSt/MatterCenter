@@ -4,13 +4,12 @@ services:
   app:
     build: .  # Construye la imagen a partir del Dockerfile en este directorio
     container_name: mattercenter_app
-    ports:
-      - "8000:8000"  # Mapea el puerto 8000 del contenedor a tu localhost
+
     volumes:
       - ./src:/app/src  # Sincroniza tu código para ver cambios al instante
       - ./data:/app/data # Persiste la base de datos fuera del contenedor
     environment:
-      - MATTER_SERVER_HOST=matter-server # Apunta a nuestro otro servicio
+      - MATTER_SERVER_HOST=localhost # Apunta a nuestro otro servicio
       - DATABASE_PATH=/app/data/mattercenter.db
     # 'depends_on' ahora espera a que el healthcheck del servidor pase
     depends_on:
@@ -22,10 +21,6 @@ services:
   matter-server:
     image: ghcr.io/home-assistant-libs/python-matter-server:stable # Usa la imagen oficial y estable
     container_name: matter_server
-    ports:
-      - "5580:5580" # Mapea el puerto del servidor Matter
-      # CAMBIO CLAVE: Dejamos el puerto de mDNS sin mapear para evitar el conflicto.
-      # - "5353:5353/udp"
     restart: unless-stopped
     healthcheck:
       # CAMBIO CLAVE: Usamos un script de Python para la comprobación,
@@ -40,6 +35,15 @@ services:
       retries: 5
       start_period: 20s
     network_mode: host
+
+    volumes:
+      - ./data:/data
+      - /run/dbus:/run/dbus:ro
+    security_opt:
+      - apparmor=unconfined
+    privileged: true
+
+    command: --storage-path /data --paa-root-cert-dir /data/credentials --bluetooth-adapter 0
 
 # # CAMBIO 3: Definir explícitamente nuestra red
 # networks:

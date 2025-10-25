@@ -10,6 +10,7 @@ from loguru import logger
 
 from matter.controller import MatterController
 from dependencies import get_controller  # ← Importamos la función del main
+from storage.database import get_database
 
 router = APIRouter()
 
@@ -131,18 +132,19 @@ async def update_device(
     Actualizar nombre del dispositivo.
     """
     try:
+        db = get_database()
         if node_id not in controller.devices:
             raise HTTPException(
                 status_code=404, detail=f"Dispositivo {node_id} no encontrado"
             )
-
+            
         device = controller.devices[node_id]
 
         if name:
             device.name = name
             logger.info(f"Dispositivo {node_id} renombrado a: {name}")
 
-        controller._save_device(device)  # Guardar cambios
+        db.save_device(device)  # Guardar cambios
         return {
             "success": True,
             "device": {
